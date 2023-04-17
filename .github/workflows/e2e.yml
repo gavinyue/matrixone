@@ -62,6 +62,7 @@ jobs:
           locale
           cd $GITHUB_WORKSPACE/mo-tester
           ./run.sh -n -g -p $GITHUB_WORKSPACE/head/test/distributed/cases 2>&1
+          cat ./report/error.txt
 
       - name: Check mo-service Status
         if: ${{ always() && !cancelled() }}
