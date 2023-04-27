@@ -145,7 +145,6 @@ func bulkInsert(db *sql.DB, records [][]string, tbl *table.Table, maxLen int) (i
 			stmt := baseStr + sb.String()
 			_, err := db.Exec(stmt)
 			if err != nil {
-				logutil.Info("bulk insert failed", zap.String("table", tbl.Table), zap.String("len", strconv.Itoa(len(stmt))), zap.Error(err))
 				return 0, err
 			}
 			sb.Reset()
