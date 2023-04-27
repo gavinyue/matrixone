@@ -34,7 +34,7 @@ const PACKET_LARGE_ERROR = "packet for query is too large"
 
 // MAX_CHUNK_SIZE is the maximum size of a chunk of records to be inserted in a single query.
 // Default packet size limit for MySQL is 16MB, but we set it to 15MB to be safe.
-const MAX_CHUNK_SIZE = 1024 * 1024 * 15
+const MAX_CHUNK_SIZE = 1024 * 1024 * 13
 
 //18331736
 
