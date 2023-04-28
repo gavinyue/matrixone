@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
@@ -34,7 +35,7 @@ const PACKET_LARGE_ERROR = "packet for query is too large"
 
 // MAX_CHUNK_SIZE is the maximum size of a chunk of records to be inserted in a single query.
 // Default packet size limit for MySQL is 16MB, but we set it to 15MB to be safe.
-const MAX_CHUNK_SIZE = 1024 * 1024 * 13
+const MAX_CHUNK_SIZE = 1024 * 1024 * 10
 
 //18331736
 
@@ -126,8 +127,14 @@ func bulkInsert(db *sql.DB, records [][]string, tbl *table.Table, maxLen int) (i
 			}
 			if tbl.Columns[i].ColType == table.TJson {
 				var js interface{}
-				_ = json.Unmarshal([]byte(field), &js)
-				escapedJSON, _ := json.Marshal(js)
+				err := json.Unmarshal([]byte(field), &js)
+				if err != nil {
+					return 0, fmt.Errorf("failed to unmarshal JSON: %v", err)
+				}
+				escapedJSON, err := json.Marshal(js)
+				if err != nil {
+					return 0, fmt.Errorf("failed to marshal JSON: %v", err)
+				}
 				sb.WriteString(fmt.Sprintf("'%s'", strings.ReplaceAll(strings.ReplaceAll(string(escapedJSON), "\\", "\\\\"), "'", "\\'")))
 			} else {
 				// escape single quote and backslash
@@ -170,7 +177,7 @@ func (sw *BaseSqlWriter) WriteRows(rows string, tbl *table.Table) (int, error) {
 
 	bulkCnt, bulkErr := bulkInsert(db, records, tbl, MAX_CHUNK_SIZE)
 	if bulkErr != nil {
-		logutil.Error("sqlWriter db insert bulk insert failed", zap.String("address", sw.address), zap.String("records lens", strconv.Itoa(len(records))), zap.Error(bulkErr))
+		logutil.Error("sqlWriter db bulk insert failed", zap.String("address", sw.address), zap.String("records lens", strconv.Itoa(len(records))), zap.Error(bulkErr))
 		return 0, err
 	}
 	return bulkCnt, bulkErr
@@ -209,7 +216,7 @@ func (sw *BaseSqlWriter) initOrRefreshDBConn(forceNewConn bool) (*sql.DB, error)
 			return err
 		}
 		dsn :=
-			fmt.Sprintf("%s:%s@tcp(%s)/?readTimeout=300s&writeTimeout=30m&timeout=3000s&maxAllowedPacket=0",
+			fmt.Sprintf("%s:%s@tcp(%s)/?maxAllowedPacket=0",
 				dbUser.UserName,
 				dbUser.Password,
 				dbAddress)
@@ -219,6 +226,10 @@ func (sw *BaseSqlWriter) initOrRefreshDBConn(forceNewConn bool) (*sql.DB, error)
 			logutil.Info("sqlWriter db initialized failed", zap.String("address", dbAddress), zap.Error(err))
 			return err
 		}
+		db.SetConnMaxLifetime(time.Minute * 3)
+		db.SetMaxOpenConns(10)
+		db.SetMaxIdleConns(10)
+
 		if sw.db != nil {
 			sw.db.Close()
 		}
