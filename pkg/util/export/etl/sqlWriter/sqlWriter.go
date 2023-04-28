@@ -225,9 +225,6 @@ func (sw *BaseSqlWriter) initOrRefreshDBConn(forceNewConn bool) (*sql.DB, error)
 			logutil.Info("sqlWriter db initialized failed", zap.String("address", dbAddress), zap.Error(err))
 			return err
 		}
-		db.SetConnMaxLifetime(0)
-		db.SetMaxOpenConns(3)
-		db.SetMaxIdleConns(3)
 
 		if sw.db != nil {
 			sw.db.Close()
