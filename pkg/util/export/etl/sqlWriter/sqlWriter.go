@@ -23,7 +23,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
@@ -35,7 +34,7 @@ const PACKET_LARGE_ERROR = "packet for query is too large"
 
 // MAX_CHUNK_SIZE is the maximum size of a chunk of records to be inserted in a single query.
 // Default packet size limit for MySQL is 16MB, but we set it to 15MB to be safe.
-const MAX_CHUNK_SIZE = 1024 * 1024 * 15
+const MAX_CHUNK_SIZE = 1024 * 1024 * 60
 
 //18331736
 
@@ -230,9 +229,9 @@ func (sw *BaseSqlWriter) initOrRefreshDBConn(forceNewConn bool) (*sql.DB, error)
 			logutil.Info("sqlWriter db initialized failed", zap.String("address", dbAddress), zap.Error(err))
 			return err
 		}
-		db.SetConnMaxLifetime(time.Minute * 3)
-		db.SetMaxOpenConns(10)
-		db.SetMaxIdleConns(10)
+		db.SetConnMaxLifetime(0)
+		db.SetMaxOpenConns(3)
+		db.SetMaxIdleConns(3)
 
 		if sw.db != nil {
 			sw.db.Close()
