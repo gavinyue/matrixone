@@ -174,13 +174,9 @@ func (sw *BaseSqlWriter) WriteRows(rows string, tbl *table.Table) (int, error) {
 		return 0, dbErr
 	}
 
-	smt, cnt, _ := generateInsertStatement(records, tbl)
-
-	_, err = db.Exec(smt)
-
-	// bulkCnt, bulkErr := bulkInsert(db, records, tbl, MAX_CHUNK_SIZE)
+	cnt, err := bulkInsert(db, records, tbl, MAX_CHUNK_SIZE)
 	if err != nil {
-		logutil.Error("sqlWriter insert failed", zap.String("table", tbl.Table), zap.String("records lens", strconv.Itoa(len(smt))), zap.Error(err))
+		logutil.Error("sqlWriter insert failed", zap.String("table", tbl.Table), zap.String("records lens", strconv.Itoa(len(records))), zap.Error(err))
 		return 0, err
 	}
 	return cnt, nil
@@ -219,7 +215,7 @@ func (sw *BaseSqlWriter) initOrRefreshDBConn(forceNewConn bool) (*sql.DB, error)
 			return err
 		}
 		dsn :=
-			fmt.Sprintf("%s:%s@tcp(%s)/?maxAllowedPacket=0",
+			fmt.Sprintf("%s:%s@tcp(%s)/?readTimeout=300s&writeTimeout=30m&timeout=3000s&maxAllowedPacket=0",
 				dbUser.UserName,
 				dbUser.Password,
 				dbAddress)
