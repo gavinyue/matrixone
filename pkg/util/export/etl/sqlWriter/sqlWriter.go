@@ -35,7 +35,7 @@ const PACKET_LARGE_ERROR = "packet for query is too large"
 
 // MAX_CHUNK_SIZE is the maximum size of a chunk of records to be inserted in a single query.
 // Default packet size limit for MySQL is 16MB, but we set it to 15MB to be safe.
-const MAX_CHUNK_SIZE = 1024 * 1024 * 10
+const MAX_CHUNK_SIZE = 1024 * 1024 * 15
 
 //18331736
 
@@ -175,12 +175,16 @@ func (sw *BaseSqlWriter) WriteRows(rows string, tbl *table.Table) (int, error) {
 		return 0, dbErr
 	}
 
-	bulkCnt, bulkErr := bulkInsert(db, records, tbl, MAX_CHUNK_SIZE)
-	if bulkErr != nil {
-		logutil.Error("sqlWriter db bulk insert failed", zap.String("address", sw.address), zap.String("records lens", strconv.Itoa(len(records))), zap.Error(bulkErr))
+	smt, cnt, _ := generateInsertStatement(records, tbl)
+
+	_, err = db.Exec(smt)
+
+	// bulkCnt, bulkErr := bulkInsert(db, records, tbl, MAX_CHUNK_SIZE)
+	if err != nil {
+		logutil.Error("sqlWriter insert failed", zap.String("table", tbl.Table), zap.String("records lens", strconv.Itoa(len(smt))), zap.Error(err))
 		return 0, err
 	}
-	return bulkCnt, bulkErr
+	return cnt, nil
 
 }
 
