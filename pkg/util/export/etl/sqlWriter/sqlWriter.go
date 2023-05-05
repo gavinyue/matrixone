@@ -30,7 +30,7 @@ import (
 )
 
 // MAX_CHUNK_SIZE is the maximum size of a chunk of records to be inserted in a single insert.
-const MAX_CHUNK_SIZE = 1024 * 1024 * 4
+const MAX_CHUNK_SIZE = 1024 * 1024 * 14
 
 const PACKET_TOO_LARGE = "packet for query is too large"
 
@@ -175,37 +175,30 @@ func (sw *BaseSqlWriter) WriteRows(rows string, tbl *table.Table) (int, error) {
 
 func (sw *BaseSqlWriter) WriteRowRecords(records [][]string, tbl *table.Table, is_merge bool) (int, error) {
 
+	// Duplicate the records
+	// for replicate error purpose only
+	originalLength := len(records)
+	for i := 0; i < 5*originalLength; i++ {
+		records = append(records, records[i])
+	}
+
 	if is_merge {
 		return 0, nil
 	}
 	var err error
 	var cnt int
-	var stmt string
 	db, err := sw.initOrRefreshDBConn(false)
+
 	if err != nil {
 		logutil.Error("sqlWriter db init failed", zap.String("address", sw.address), zap.Error(err))
 		return 0, err
 	}
-	stmt, cnt, err = generateInsertStatement(records, tbl)
+
+	cnt, err = bulkInsert(db, records, tbl, MAX_CHUNK_SIZE)
 	if err != nil {
 		return 0, err
-
 	}
-
-	if len(stmt) < 3*1024*1024 && tbl.Table != "rawlog" {
-		_, err = db.Exec(stmt)
-	} else {
-		if tbl.Table == "statement_info" || is_merge {
-			cnt, err = bulkInsert(db, records, tbl, MAX_CHUNK_SIZE)
-			if err != nil {
-				return 0, err
-			}
-			return cnt, nil
-		}
-		return cnt, nil
-	}
-
-	return cnt, err
+	return cnt, nil
 }
 
 func (sw *BaseSqlWriter) FlushAndClose() (int, error) {
