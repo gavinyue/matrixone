@@ -58,9 +58,10 @@ const DBConnRetryThreshold = 8
 const MAX_CHUNK_SIZE = 1024 * 1024 * 4
 
 type prepareSQLs struct {
-	tenRows string
-	oneRow  string
-	columns int
+	rowNum    int
+	multiRows string
+	oneRow    string
+	columns   int
 }
 
 type DBUser struct {
@@ -182,7 +183,7 @@ func WriteRowRecords(records [][]string, tbl *table.Table, timeout time.Duration
 	return 0, err
 }
 
-func getPrepareSQL(tbl *table.Table, columns int) *prepareSQLs {
+func getPrepareSQL(tbl *table.Table, columns int, rowNum int) *prepareSQLs {
 	prefix := fmt.Sprintf("INSERT INTO `%s`.`%s` VALUES ", tbl.Database, tbl.Table)
 	buf := new(bytes.Buffer)
 	for i := 0; i < columns; i++ {
@@ -194,21 +195,22 @@ func getPrepareSQL(tbl *table.Table, columns int) *prepareSQLs {
 	}
 	oneRow := fmt.Sprintf("%s (%s)", prefix, buf.String())
 
-	tenBuf := new(bytes.Buffer)
-	tenBuf.WriteString(prefix)
-	for i := 0; i < multiPrepareSQLRows; i++ {
+	multiRowBuf := new(bytes.Buffer)
+	multiRowBuf.WriteString(prefix)
+	for i := 0; i < rowNum; i++ {
 		if i == 0 {
-			tenBuf.WriteByte('(')
+			multiRowBuf.WriteByte('(')
 		} else {
-			tenBuf.WriteString(",(")
+			multiRowBuf.WriteString(",(")
 		}
-		tenBuf.Write(buf.Bytes())
-		tenBuf.WriteByte(')')
+		multiRowBuf.Write(buf.Bytes())
+		multiRowBuf.WriteByte(')')
 	}
 	return &prepareSQLs{
-		tenRows: tenBuf.String(),
-		oneRow:  oneRow,
-		columns: columns,
+		rowNum:    rowNum,
+		multiRows: multiRowBuf.String(),
+		oneRow:    oneRow,
+		columns:   columns,
 	}
 }
 
@@ -223,11 +225,11 @@ func bulkInsert(ctx context.Context, done chan error, sqlDb *sql.DB, records [][
 	if val, ok := prepareSQLMap.Load(key); ok {
 		sqls = val.(*prepareSQLs)
 		if sqls.columns != len(records[0]) {
-			sqls = getPrepareSQL(tbl, len(records[0]))
+			sqls = getPrepareSQL(tbl, len(records[0]), 10)
 			prepareSQLMap.Store(key, sqls)
 		}
 	} else {
-		sqls = getPrepareSQL(tbl, len(records[0]))
+		sqls = getPrepareSQL(tbl, len(records[0]), 10)
 		prepareSQLMap.Store(key, sqls)
 	}
 
@@ -245,7 +247,7 @@ func bulkInsert(ctx context.Context, done chan error, sqlDb *sql.DB, records [][
 			break
 		} else if len(records) >= multiPrepareSQLRows {
 			if stmt10 == nil {
-				stmt10, err = tx.PrepareContext(ctx, sqls.tenRows)
+				stmt10, err = tx.PrepareContext(ctx, sqls.multiRows)
 				if err != nil {
 					tx.Rollback()
 					done <- err
