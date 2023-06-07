@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -214,18 +213,6 @@ func getPrepareSQL(tbl *table.Table, columns int, rowNum int) *prepareSQLs {
 	}
 }
 
-func chunkRecords(records [][]string, chunkSize int) [][][]string {
-	var chunks [][][]string
-	for i := 0; i < len(records); i += chunkSize {
-		end := i + chunkSize
-		if end > len(records) {
-			end = len(records)
-		}
-		chunks = append(chunks, records[i:end])
-	}
-	return chunks
-}
-
 func bulkInsert(ctx context.Context, done chan error, sqlDb *sql.DB, records [][]string, tbl *table.Table, maxLen int) {
 	if len(records) == 0 {
 		done <- nil
@@ -255,22 +242,6 @@ func bulkInsert(ctx context.Context, done chan error, sqlDb *sql.DB, records [][
 	var stmt10 *sql.Stmt
 	var stmt1 *sql.Stmt
 
-	chunks := chunkRecords(records, rowNum)
-	for _, chunk := range chunks {
-		if len(chunk) < rowNum {
-			// insert one by one using stmt1
-		} else {
-			// insert multi rows using stmt10
-			if stmt10 == nil {
-				stmt10, err = tx.PrepareContext(ctx, sqls.multiRows)
-				if err != nil {
-					tx.Rollback()
-					done <- err
-					return
-				}
-			}
-		}
-	}
 	for {
 		if len(records) == 0 {
 			break
@@ -282,90 +253,76 @@ func bulkInsert(ctx context.Context, done chan error, sqlDb *sql.DB, records [][
 					done <- err
 					return
 				}
-				vals := make([]any, sqls.columns*multiPrepareSQLRows)
-				idx := 0
-				for _, row := range records[:multiPrepareSQLRows] {
-					for i, field := range row {
-						if tbl.Columns[i].ColType == table.TJson {
-							var js interface{}
-							escapedJSON, _ := json.Marshal(js)
-							_ = json.Unmarshal([]byte(field), &js)
-							vals[idx] = escapedJSON
-						} else {
-							escapedStr := field
-							if tbl.Columns[i].ColType == table.TVarchar && tbl.Columns[i].Scale < len(escapedStr) {
-								vals[idx] = field[:tbl.Columns[i].Scale-1]
-							} else {
-								vals[idx] = field
-							}
-						}
-						idx++
-					}
-				}
-				_, err := stmt10.ExecContext(ctx, vals...)
-				if err != nil {
-					tx.Rollback()
-					done <- err
-					return
-				}
-
-				records = records[multiPrepareSQLRows:]
-			} else {
-				if stmt10 != nil {
-					err = stmt10.Close()
-					if err != nil {
-						tx.Rollback()
-						done <- err
-						return
-					}
-					stmt10 = nil
-				}
-				if stmt1 == nil {
-					stmt1, err = tx.PrepareContext(ctx, sqls.oneRow)
-					if err != nil {
-						tx.Rollback()
-						done <- err
-						return
-					}
-				}
-				vals := make([]any, sqls.columns)
-				for _, row := range records {
-					for i, field := range row {
-						if tbl.Columns[i].ColType == table.TJson {
-							var js interface{}
-							escapedJSON, _ := json.Marshal(js)
-							_ = json.Unmarshal([]byte(field), &js)
-							vals[i] = escapedJSON
-						} else {
-							escapedStr := field
-							if tbl.Columns[i].ColType == table.TVarchar && tbl.Columns[i].Scale < len(escapedStr) {
-								vals[i] = field[:tbl.Columns[i].Scale-1]
-							} else {
-								vals[i] = field
-							}
-						}
-					}
-					_, err := stmt1.ExecContext(ctx, vals...)
-					if err != nil {
-						tx.Rollback()
-						done <- err
-						return
-					}
-				}
-				err = stmt1.Close()
-				if err != nil {
-					tx.Rollback()
-					done <- err
-					return
-				}
-				break
 			}
-		}
+			vals := make([]any, sqls.columns*rowNum)
+			idx := 0
+			for _, row := range records[:rowNum] {
+				for i, field := range row {
+					escapedStr := field
+					if tbl.Columns[i].ColType == table.TVarchar && tbl.Columns[i].Scale < len(escapedStr) {
+						vals[idx] = field[:tbl.Columns[i].Scale-1]
+					} else {
+						vals[idx] = field
+					}
+					idx++
+				}
+			}
+			_, err := stmt10.ExecContext(ctx, vals...)
+			if err != nil {
+				tx.Rollback()
+				done <- err
+				return
+			}
 
-		if err := tx.Commit(); err != nil {
-			done <- err
-			return
+			records = records[rowNum:]
+		} else {
+			if stmt10 != nil {
+				err = stmt10.Close()
+				if err != nil {
+					tx.Rollback()
+					done <- err
+					return
+				}
+				stmt10 = nil
+			}
+			if stmt1 == nil {
+				stmt1, err = tx.PrepareContext(ctx, sqls.oneRow)
+				if err != nil {
+					tx.Rollback()
+					done <- err
+					return
+				}
+			}
+			vals := make([]any, sqls.columns)
+			for _, row := range records {
+				for i, field := range row {
+					escapedStr := field
+					if tbl.Columns[i].ColType == table.TVarchar && tbl.Columns[i].Scale < len(escapedStr) {
+						vals[i] = field[:tbl.Columns[i].Scale-1]
+					} else {
+						vals[i] = field
+					}
+				}
+				_, err := stmt1.ExecContext(ctx, vals...)
+				if err != nil {
+					tx.Rollback()
+					done <- err
+					return
+				}
+			}
+			err = stmt1.Close()
+			if err != nil {
+				tx.Rollback()
+				done <- err
+				return
+			}
+			break
 		}
-		done <- nil
 	}
+
+	if err := tx.Commit(); err != nil {
+		done <- err
+		return
+	}
+	done <- nil
 }
