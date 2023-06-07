@@ -54,7 +54,7 @@ const MaxConnectionNumber = 1
 
 const DBConnRetryThreshold = 8
 
-const MAX_CHUNK_SIZE = 1024 * 1024 * 4
+const MaxInsertLen = 1000
 
 type prepareSQLs struct {
 	rowNum    int
@@ -164,7 +164,7 @@ func WriteRowRecords(records [][]string, tbl *table.Table, timeout time.Duration
 	defer cancel()
 
 	done := make(chan error)
-	go bulkInsert(ctx, done, dbConn, records, tbl, MAX_CHUNK_SIZE)
+	go bulkInsert(ctx, done, dbConn, records, tbl, MaxInsertLen)
 
 	select {
 	case err := <-done:
