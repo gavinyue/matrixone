@@ -213,23 +213,22 @@ func getPrepareSQL(tbl *table.Table, columns int, rowNum int) *prepareSQLs {
 	}
 }
 
-func bulkInsert(ctx context.Context, done chan error, sqlDb *sql.DB, records [][]string, tbl *table.Table, maxLen int) {
+func bulkInsert(ctx context.Context, done chan error, sqlDb *sql.DB, records [][]string, tbl *table.Table, batchLen int) {
 	if len(records) == 0 {
 		done <- nil
 		return
 	}
 
 	var sqls *prepareSQLs
-	var rowNum int = multiPrepareSQLRows
 	key := fmt.Sprintf("%s_%s", tbl.Database, tbl.Table)
 	if val, ok := prepareSQLMap.Load(key); ok {
 		sqls = val.(*prepareSQLs)
 		if sqls.columns != len(records[0]) {
-			sqls = getPrepareSQL(tbl, len(records[0]), rowNum)
+			sqls = getPrepareSQL(tbl, len(records[0]), batchLen)
 			prepareSQLMap.Store(key, sqls)
 		}
 	} else {
-		sqls = getPrepareSQL(tbl, len(records[0]), rowNum)
+		sqls = getPrepareSQL(tbl, len(records[0]), batchLen)
 		prepareSQLMap.Store(key, sqls)
 	}
 
@@ -245,7 +244,7 @@ func bulkInsert(ctx context.Context, done chan error, sqlDb *sql.DB, records [][
 	for {
 		if len(records) == 0 {
 			break
-		} else if len(records) >= rowNum {
+		} else if len(records) >= batchLen {
 			if stmt10 == nil {
 				stmt10, err = tx.PrepareContext(ctx, sqls.multiRows)
 				if err != nil {
@@ -254,9 +253,9 @@ func bulkInsert(ctx context.Context, done chan error, sqlDb *sql.DB, records [][
 					return
 				}
 			}
-			vals := make([]any, sqls.columns*rowNum)
+			vals := make([]any, sqls.columns*batchLen)
 			idx := 0
-			for _, row := range records[:rowNum] {
+			for _, row := range records[:batchLen] {
 				for i, field := range row {
 					escapedStr := field
 					if tbl.Columns[i].ColType == table.TVarchar && tbl.Columns[i].Scale < len(escapedStr) {
@@ -274,7 +273,7 @@ func bulkInsert(ctx context.Context, done chan error, sqlDb *sql.DB, records [][
 				return
 			}
 
-			records = records[rowNum:]
+			records = records[batchLen:]
 		} else {
 			if stmt10 != nil {
 				err = stmt10.Close()
