@@ -47,14 +47,12 @@ var (
 	prepareSQLMap sync.Map
 )
 
-const multiPrepareSQLRows = 10
-
 const MOLoggerUser = "mo_logger"
 const MaxConnectionNumber = 1
 
 const DBConnRetryThreshold = 8
 
-const MaxInsertLen = 1000
+const MaxInsertLen = 100
 
 type prepareSQLs struct {
 	rowNum    int
@@ -268,6 +266,7 @@ func bulkInsert(ctx context.Context, done chan error, sqlDb *sql.DB, records [][
 			}
 			_, err := stmt10.ExecContext(ctx, vals...)
 			if err != nil {
+				logutil.Error("sqlWriter batchInsert failed", zap.Error(err))
 				tx.Rollback()
 				done <- err
 				return
